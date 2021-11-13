@@ -97,16 +97,16 @@ void stop_pid_control();
 
 void (*state_machine[SUB_MENU_MAX_NUM][EV_MAX_NUM])() = 
 {
-	{nothing,		nothing,    prev_menu,	next_menu 	},  // MAIN_MENU_WELCOME
+	{nothing,		nothing,    prev_menu,	next_menu 	},	// MAIN_MENU_WELCOME
 	{enter_menu,  	go_home,    prev_menu,  next_menu 	},  // MAIN_MENU_T_SET
 	{enter_menu,  	go_home,    prev_menu,  next_menu 	},  // MAIN_MENU_T_HEAT
 	{enter_menu,  	go_home,    prev_menu,  next_menu 	},  // MAIN_MENU_T_KEEP
 	{enter_menu,  	go_home,    prev_menu,  next_menu 	},  // MAIN_MENU_T_COOL
-	{enter_menu,  	go_home,    prev_menu,  next_menu 	},  // MAIN_MENU_KP
+	{enter_menu,  	go_home,	prev_menu,  next_menu 	},  // MAIN_MENU_KP
 	{enter_menu,  	go_home,    prev_menu,  next_menu 	},  // MAIN_MENU_KI
 	{enter_menu,  	go_home,    prev_menu,  next_menu 	},  // MAIN_MENU_KD
 	{enter_menu,	go_home,	prev_menu, 	next_menu	},	// MAIN_MENU_PID
-	{nothing,     	nothing,    nothing,    nothing   	},  // MAIN_MENU_MAX_NUM
+	{nothing,     	nothing,   	 nothing,   nothing   	},  // MAIN_MENU_MAX_NUM
 	{exit_menu,   	exit_menu,  dec_t_set,  inc_t_set 	},  // SUB_MENU_T_SET
 	{exit_menu,  	exit_menu,  dec_t_heat, inc_t_heat	},  // SUB_MENU_T_HEAT
 	{exit_menu,   	exit_menu,  dec_t_keep, inc_t_keep	},  // SUB_MENU_T_KEEP
