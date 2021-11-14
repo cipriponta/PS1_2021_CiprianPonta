@@ -5,6 +5,8 @@
 #define PRESCALER 64
 #define TEMP_CHANNEL 0
 #define SAMPLE_TIME 0.1
+#define KCR 255.0
+#define PCR 0.5
 
 #define BUTTON_OK     (1 << PB4)
 #define BUTTON_CANCEL (1 << PB2)
@@ -54,10 +56,10 @@ volatile menu_t current_menu_state = MAIN_MENU_WELCOME;
 volatile int t_set = 35;
 volatile int t_heat = 100;
 volatile int t_keep = 50;
-volatile int t_cool = 300;
-volatile double kp = 500;
-volatile double ki = 0.1;
-volatile double kd = 0.1;
+volatile int t_cool = 1000;
+volatile double kp = 0.6 * KCR;
+volatile double ki = 0.5 * PCR;
+volatile double kd = 0.125 * PCR;
 
 volatile int timer1_counter = 0;
 volatile double temperature = 0;
