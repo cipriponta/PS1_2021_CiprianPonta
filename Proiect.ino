@@ -52,15 +52,18 @@ volatile button_t current_button_state = EV_NONE;
 volatile menu_t current_menu_state = MAIN_MENU_WELCOME;
 
 volatile int t_set = 35;
-volatile int t_heat = 30;
-volatile int t_keep = 30;
-volatile int t_cool = 30;
-volatile double kp = 100;
-volatile double ki = 0.01;
+volatile int t_heat = 100;
+volatile int t_keep = 50;
+volatile int t_cool = 300;
+volatile double kp = 500;
+volatile double ki = 0.1;
 volatile double kd = 0.1;
 
 volatile int timer1_counter = 0;
 volatile double temperature = 0;
+volatile double initial_temperature = 0;
+volatile double setpoint = 0;
+volatile double pid_mode_counter = 0;
 
 // Function Signatures
 void timer1_init();
@@ -94,6 +97,7 @@ void dec_kd();
 
 void start_pid_control();
 void stop_pid_control();
+void calculate_setpoint();
 
 void (*state_machine[SUB_MENU_MAX_NUM][EV_MAX_NUM])() = 
 {
@@ -122,17 +126,17 @@ int main()
 {  
 	Serial.begin(9600);
 	lcd.begin(16, 2);
-
+	
+	sei();
+	
 	timer1_init();
 	timer2_init();
 	adc_init();
 	button_init();
-  
-	sei();
-  
+	
 	while(1)
 	{
-	
+		
 	}
 }
 
@@ -424,7 +428,7 @@ void start_pid_control()
 	static double error_sum = 0;
 	static double prev_error = 0;
 	
-	double error = (double)t_set - temperature;
+	double error = setpoint - temperature;
 	error_sum += (error * SAMPLE_TIME);
 	double derivative = (error - prev_error) / SAMPLE_TIME;
 	double output = kp * error + ki * error_sum + kd * derivative;
@@ -454,6 +458,35 @@ void stop_pid_control()
 	OCR2A = 0;
 }
 
+void calculate_setpoint()
+{
+	if(current_menu_state == SUB_MENU_PID)
+	{
+		pid_mode_counter++;
+		
+		if(pid_mode_counter <= t_heat)
+		{
+			setpoint = initial_temperature + ((double)t_set - initial_temperature)/((double)t_heat) * (double)pid_mode_counter;
+		}
+		else if(pid_mode_counter <= t_heat + t_keep)
+		{
+			setpoint = (double)t_set;
+		}
+		else if(pid_mode_counter <= t_heat + t_keep + t_cool)
+		{
+			setpoint = t_set - ((double)t_set - initial_temperature)/((double)t_cool) * ((double)(pid_mode_counter - t_heat - t_keep));
+		}
+		else
+		{
+			setpoint = initial_temperature;
+		}
+	}
+	else
+	{
+		pid_mode_counter = 0;
+	}
+}
+
 // Interruption Routines
 ISR(TIMER1_COMPA_vect)
 {
@@ -468,12 +501,14 @@ ISR(TIMER1_COMPA_vect)
 	ADMUX &= ~0x0F; // reset the current channel
 	ADMUX |= TEMP_CHANNEL; // setting the channel
 	ADCSRA |= (1 << ADSC); // adc interrupt
+	
 	if(current_menu_state == SUB_MENU_PID)
 	{
 		start_pid_control();
 	}
 	else
 	{	
+		initial_temperature = temperature;
 		stop_pid_control();
 	}
 	
@@ -490,9 +525,16 @@ ISR(TIMER1_COMPA_vect)
 	// every 1 second
 	if(timer1_counter == 0)
 	{
+		Serial.print("initial_temperature = ");
+		Serial.print(initial_temperature);
+		Serial.print(", temperature = ");
 		Serial.print(temperature);
-		Serial.print(" ");
+		Serial.print(", setpoint = ");
+		Serial.print(setpoint);
+		Serial.print(", t_set = ");
 		Serial.println(t_set);
+		
+		calculate_setpoint();
 	}
 }
 
