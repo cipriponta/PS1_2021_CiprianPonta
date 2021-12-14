@@ -8,10 +8,25 @@
 #define KCR 255.0
 #define PCR 0.5
 
-#define BUTTON_OK     (1 << PB4)
-#define BUTTON_CANCEL (1 << PB2)
-#define BUTTON_PREV   (1 << PB1)
-#define BUTTON_NEXT   (1 << PB0)
+#define BUTTON_OK    	(1 << PB4)
+#define BUTTON_CANCEL 	(1 << PB2)
+#define BUTTON_PREV   	(1 << PB1)
+#define BUTTON_NEXT   	(1 << PB0)
+
+#define MEM_T_SET_H		((unsigned int)(0x00))
+#define MEM_T_SET_L		((unsigned int)(0x01))
+#define MEM_T_HEAT_H	((unsigned int)(0x02))
+#define MEM_T_HEAT_L	((unsigned int)(0x03))
+#define MEM_T_KEEP_H	((unsigned int)(0x04))
+#define MEM_T_KEEP_L	((unsigned int)(0x05))
+#define MEM_T_COOL_H	((unsigned int)(0x06))
+#define MEM_T_COOL_L	((unsigned int)(0x07))
+#define MEM_KP_H		((unsigned int)(0x08))
+#define MEM_KP_L		((unsigned int)(0x09))
+#define MEM_KI_H		((unsigned int)(0x0A))
+#define MEM_KI_L		((unsigned int)(0x0B))
+#define MEM_KD_H		((unsigned int)(0x0C))
+#define MEM_KD_L		((unsigned int)(0x0D))
 
 // Type Definitions
 enum button_t
@@ -53,13 +68,21 @@ LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
 volatile button_t current_button_state = EV_NONE;
 volatile menu_t current_menu_state = MAIN_MENU_WELCOME;
 
-volatile int t_set = 35;
-volatile int t_heat = 100;
-volatile int t_keep = 50;
-volatile int t_cool = 1000;
-volatile double kp = 0.6 * KCR;
-volatile double ki = 0.5 * PCR;
-volatile double kd = 0.125 * PCR;
+volatile unsigned int initial_t_set = 0;
+volatile unsigned int initial_t_heat = 0;
+volatile unsigned int initial_t_keep = 0;
+volatile unsigned int initial_t_cool = 0;
+volatile double initial_kp = 0;			
+volatile double initial_ki = 0;			
+volatile double initial_kd = 0;			
+
+volatile unsigned int t_set = 0;		// t_set = 35
+volatile unsigned int t_heat = 0;		// t_heat = 120
+volatile unsigned int t_keep = 0;		// t_keep = 60
+volatile unsigned int t_cool = 0;		// t_cool = 600
+volatile double kp = 0;					// System Constraint: kp * 100 < 65536, kp = 0.6 * KCR (153.00)
+volatile double ki = 0;					// System Constraint: ki * 100 < 65536, ki = 0.5 * PCR (0.25)
+volatile double kd = 0;					// System Constraint: kd * 100 < 65536, kd = 0.125 * PCR (0.06)
 
 volatile int timer1_counter = 0;
 volatile double temperature = 0;
@@ -101,6 +124,19 @@ void start_pid_control();
 void stop_pid_control();
 void calculate_setpoint();
 
+void EEPROM_write(unsigned int address, unsigned char data);
+void EEPROM_read(unsigned int address, unsigned char *data);
+
+void EEPROM_read_all();
+void EEPROM_write_all();
+void EEPROM_write_t_set();
+void EEPROM_write_t_heat();
+void EEPROM_write_t_keep();
+void EEPROM_write_t_cool();
+void EEPROM_write_kp();
+void EEPROM_write_ki();
+void EEPROM_write_kd();
+
 void (*state_machine[SUB_MENU_MAX_NUM][EV_MAX_NUM])() = 
 {
 	{nothing,		nothing,    prev_menu,	next_menu 	},	// MAIN_MENU_WELCOME
@@ -135,6 +171,8 @@ int main()
 	timer2_init();
 	adc_init();
 	button_init();
+	
+	EEPROM_read_all();
 	
 	while(1)
 	{
@@ -319,7 +357,7 @@ void print_menu()
 
 void nothing()
 {
-  
+	
 }
 
 void enter_menu()
@@ -427,6 +465,8 @@ void dec_kd()
 
 void start_pid_control()
 {	
+	EEPROM_write_all();
+	
 	static double error_sum = 0;
 	static double prev_error = 0;
 	
@@ -487,6 +527,304 @@ void calculate_setpoint()
 	{
 		pid_mode_counter = 0;
 	}
+}
+
+void EEPROM_write(unsigned int address, unsigned char data)
+{
+	while(EECR & (1<<EEPE));	// Wait for completion of previous write
+	EEAR = address;				// Set up address register
+	EEDR = data;				// Set up data register
+	EECR |= (1<<EEMPE);			// Enable master write
+	EECR |= (1<<EEPE);			// Start EEPROM write
+}
+
+void EEPROM_read(unsigned int address, unsigned char *data)
+{
+	while(EECR & (1<<EEPE)); 	// Wait for completion of previous write
+	EEAR = address;				// Set up address register
+	EECR |= (1 << EERE);		// Start EEPROM read
+	*data = EEDR;				// Return data through pointer
+}
+
+void EEPROM_read_all()
+{
+	cli();
+	
+	unsigned char t_set_h;
+	unsigned char t_set_l;
+	
+	unsigned char t_heat_h;
+	unsigned char t_heat_l;
+	
+	unsigned char t_keep_h;
+	unsigned char t_keep_l;
+	
+	unsigned char t_cool_h;
+	unsigned char t_cool_l;
+	
+	unsigned char kp_h;
+	unsigned char kp_l;
+	
+	unsigned char ki_h;
+	unsigned char ki_l;
+	
+	unsigned char kd_h;
+	unsigned char kd_l;
+	
+	EEPROM_read(MEM_T_SET_H, &t_set_h);
+	EEPROM_read(MEM_T_SET_L, &t_set_l);
+	initial_t_set = (((unsigned int)(t_set_h)) << 8) + (unsigned int)(t_set_l);
+	t_set = initial_t_set;
+	
+	// Serial.println("READ T_SET:");
+	// Serial.println(t_set);
+	// Serial.println(t_set_h);
+	// Serial.println(t_set_l);
+	
+	EEPROM_read(MEM_T_HEAT_H, &t_heat_h);
+	EEPROM_read(MEM_T_HEAT_L, &t_heat_l);
+	initial_t_heat = (((unsigned int)(t_heat_h)) << 8) + (unsigned int)(t_heat_l);
+	t_heat = initial_t_heat;
+	
+	// Serial.println("READ T_HEAT:");
+	// Serial.println(t_heat);
+	// Serial.println(t_heat_h);
+	// Serial.println(t_heat_l);
+	
+	EEPROM_read(MEM_T_KEEP_H, &t_keep_h);
+	EEPROM_read(MEM_T_KEEP_L, &t_keep_l);
+	initial_t_keep = (((unsigned int)(t_keep_h)) << 8) + (unsigned int)(t_keep_l);
+	t_keep = initial_t_keep;
+	
+	// Serial.println("READ T_KEEP:");
+	// Serial.println(t_keep);
+	// Serial.println(t_keep_h);
+	// Serial.println(t_keep_l);
+	
+	EEPROM_read(MEM_T_COOL_H, &t_cool_h);
+	EEPROM_read(MEM_T_COOL_L, &t_cool_l);
+	initial_t_cool = (((unsigned int)(t_cool_h)) << 8) + (unsigned int)(t_cool_l);
+	t_cool = initial_t_cool;
+	
+	// Serial.println("READ T_COOL:");
+	// Serial.println(t_cool);
+	// Serial.println(t_cool_h);
+	// Serial.println(t_cool_l);
+	
+	EEPROM_read(MEM_KP_H, &kp_h);
+	EEPROM_read(MEM_KP_L, &kp_l);
+	initial_kp = ((double)((((unsigned int)(kp_h)) << 8) + (unsigned int)(kp_l)))/100.00;
+	kp = initial_kp;
+	
+	// Serial.println("READ KP:");
+	// Serial.println(kp);
+	// Serial.println(kp_h);
+	// Serial.println(kp_l);
+	
+	EEPROM_read(MEM_KI_H, &ki_h);
+	EEPROM_read(MEM_KI_L, &ki_l);
+	initial_ki = ((double)((((unsigned int)(ki_h)) << 8) + (unsigned int)(ki_l)))/100.00;
+	ki = initial_ki;
+	
+	// Serial.println("READ KI:");
+	// Serial.println(ki);
+	// Serial.println(ki_h);
+	// Serial.println(ki_l);
+	
+	EEPROM_read(MEM_KD_H, &kd_h);
+	EEPROM_read(MEM_KD_L, &kd_l);
+	initial_kd = ((double)((((unsigned int)(kd_h)) << 8) + (unsigned int)(kd_l)))/100.00;
+	kd = initial_kd;
+	
+	// Serial.println("READ KD:");
+	// Serial.println(kd);
+	// Serial.println(kd_h);
+	// Serial.println(kd_l);
+	
+	sei();
+}
+
+void EEPROM_write_all()
+{	
+	if(t_set != initial_t_set)
+	{
+		cli();
+		EEPROM_write_t_set();
+		initial_t_set = t_set;
+		sei();
+	}
+	
+	if(t_heat != initial_t_heat)
+	{
+		cli();
+		EEPROM_write_t_heat();
+		initial_t_heat = t_heat;
+		sei();
+	}
+	
+	if(t_keep != initial_t_keep)
+	{
+		cli();
+		EEPROM_write_t_keep();
+		initial_t_keep = t_keep;
+		sei();
+	}
+	
+	if(t_cool != initial_t_cool)
+	{
+		cli();
+		EEPROM_write_t_cool();
+		initial_t_cool = t_cool;
+		sei();
+	}
+	
+	if(kp != initial_kp)
+	{
+		cli();
+		EEPROM_write_kp();
+		initial_kp = kp;
+		sei();
+	}
+	
+	if(ki != initial_ki)
+	{
+		cli();
+		EEPROM_write_ki();
+		initial_ki = ki;
+		sei();
+	}
+	
+	if(kd != initial_kd)
+	{
+		cli();
+		EEPROM_write_kd();
+		initial_kd = kd;
+		sei();
+	}
+}
+
+void EEPROM_write_t_set()
+{
+	unsigned char t_set_h;
+	unsigned char t_set_l;
+	
+	t_set_h = (unsigned char)((t_set & 0xFF00) >> 8);
+	t_set_l = (unsigned char)(t_set & 0x00FF);
+	
+	Serial.println("WRITE T_SET:");
+	Serial.println(t_set_h);
+	Serial.println(t_set_l);
+	
+	EEPROM_write(MEM_T_SET_H, t_set_h);
+	EEPROM_write(MEM_T_SET_L, t_set_l);
+}
+
+void EEPROM_write_t_heat()
+{
+	unsigned char t_heat_h;
+	unsigned char t_heat_l;
+	
+	t_heat_h = (unsigned char)((t_heat & 0xFF00) >> 8);
+	t_heat_l = (unsigned char)(t_heat & 0x00FF);
+	
+	Serial.println("WRITE T_HEAT:");
+	Serial.println(t_heat_h);
+	Serial.println(t_heat_l);
+	
+	EEPROM_write(MEM_T_HEAT_H, t_heat_h);
+	EEPROM_write(MEM_T_HEAT_L, t_heat_l);
+}
+
+void EEPROM_write_t_keep()
+{
+	unsigned char t_keep_h;
+	unsigned char t_keep_l;
+	
+	t_keep_h = (unsigned char)((t_keep & 0xFF00) >> 8);
+	t_keep_l = (unsigned char)(t_keep & 0x00FF);
+	
+	Serial.println("WRITE T_KEEP:");
+	Serial.println(t_keep_h);
+	Serial.println(t_keep_l);
+	
+	EEPROM_write(MEM_T_KEEP_H, t_keep_h);
+	EEPROM_write(MEM_T_KEEP_L, t_keep_l);
+}
+
+void EEPROM_write_t_cool()
+{
+	unsigned char t_cool_h;
+	unsigned char t_cool_l;
+	
+	t_cool_h = (unsigned char)((t_cool & 0xFF00) >> 8);
+	t_cool_l = (unsigned char)(t_cool & 0x00FF);
+	
+	Serial.println("WRITE T_COOL:");
+	Serial.println(t_cool_h);
+	Serial.println(t_cool_l);
+	
+	EEPROM_write(MEM_T_COOL_H, t_cool_h);
+	EEPROM_write(MEM_T_COOL_L, t_cool_l);
+}
+
+void EEPROM_write_kp()
+{
+	unsigned char kp_h;
+	unsigned char kp_l;
+	unsigned int kp_int;
+	
+	kp_int = (unsigned int)(kp * 100);
+	
+	kp_h = (unsigned char)((kp_int & 0xFF00) >> 8);
+	kp_l = (unsigned char)(kp_int & 0x00FF);
+	
+	Serial.println("WRITE KP:");
+	Serial.println(kp_int);
+	Serial.println(kp_h);
+	Serial.println(kp_l);
+	
+	EEPROM_write(MEM_KP_H, kp_h);
+	EEPROM_write(MEM_KP_L, kp_l);
+}
+
+void EEPROM_write_ki()
+{
+	unsigned char ki_h;
+	unsigned char ki_l;
+	unsigned int ki_int;
+	
+	ki_int = (unsigned int)(ki * 100);
+	
+	ki_h = (unsigned char)((ki_int & 0xFF00) >> 8);
+	ki_l = (unsigned char)(ki_int & 0x00FF);
+	
+	Serial.println("WRITE KI:");
+	Serial.println(ki_int);
+	Serial.println(ki_h);
+	Serial.println(ki_l);
+	
+	EEPROM_write(MEM_KI_H, ki_h);
+	EEPROM_write(MEM_KI_L, ki_l);
+}
+
+void EEPROM_write_kd()
+{
+	unsigned char kd_h;
+	unsigned char kd_l;
+	unsigned int kd_int;
+	
+	kd_int = (unsigned int)(kd * 100);
+	
+	kd_h = (unsigned char)((kd_int & 0xFF00) >> 8);
+	kd_l = (unsigned char)(kd_int & 0x00FF);
+	
+	Serial.println("WRITE KD:");
+	Serial.println(kd_int);
+	Serial.println(kd_h);
+	Serial.println(kd_l);
+	
+	EEPROM_write(MEM_KD_H, kd_h);
+	EEPROM_write(MEM_KD_L, kd_l);
 }
 
 // Interruption Routines
